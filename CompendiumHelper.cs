@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Runtime.Serialization.Formatters.Binary;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml.XPath;
@@ -20,8 +21,21 @@ namespace HeavyDuck.Dnd
         private const string URL_MONSTER = "http://www.wizards.com/dndinsider/compendium/monster.aspx?id=";
 
         private static readonly Regex m_style_regex = new Regex("href=\"styles/(.*?\\.css)\"", RegexOptions.IgnoreCase);
+        private static readonly string m_cache_root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), @"HeavyDuck.Dnd");
 
         private CookieContainer m_cookies = new CookieContainer();
+
+        static CompendiumHelper()
+        {
+            try
+            {
+                Directory.CreateDirectory(m_cache_root);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(ex.ToString());
+            }
+        }
 
         public void Login()
         {
@@ -81,7 +95,7 @@ namespace HeavyDuck.Dnd
             string url = URL_MONSTER + id;
 
             // check if login is required
-            if (!ValidateCookies(url))
+            while (!ValidateCookies(url))
                 Login();
 
             try
@@ -132,6 +146,47 @@ namespace HeavyDuck.Dnd
 
             // if we got past the gauntlet, all's well
             return true;
+        }
+
+        public void SaveCookies()
+        {
+            BinaryFormatter formatter;
+            string path = Path.Combine(m_cache_root, @"cookies.dat");
+
+            try
+            {
+                using (FileStream fs = File.OpenWrite(path))
+                {
+                    formatter = new BinaryFormatter();
+                    formatter.Serialize(fs, m_cookies);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(ex.ToString());
+            }
+        }
+
+        public void LoadCookies()
+        {
+            BinaryFormatter formatter;
+            string path = Path.Combine(m_cache_root, @"cookies.dat");
+
+            if (!File.Exists(path))
+                return;
+
+            try
+            {
+                using (FileStream fs = File.OpenRead(path))
+                {
+                    formatter = new BinaryFormatter();
+                    m_cookies = (CookieContainer)formatter.Deserialize(fs);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(ex.ToString());
+            }
         }
 
         public static string FixStyles(string html)
