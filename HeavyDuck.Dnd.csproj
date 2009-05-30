@@ -52,6 +52,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="CompendiumHelper.cs" />
+    <Compile Include="Dice.cs" />
     <Compile Include="Forms\InsiderLoginDialog.cs">
       <SubType>Form</SubType>
     </Compile>
