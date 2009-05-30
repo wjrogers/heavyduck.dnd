@@ -85,13 +85,6 @@ namespace HeavyDuck.Dnd.Forms
             progress.AutoAdvance = true;
             progress.AddTask((p) =>
             {
-                p.Update("Logging in...");
-
-                if (!m_helper.ValidateCookies())
-                    m_helper.Login();
-            });
-            progress.AddTask((p) =>
-            {
                 p.Update("Querying compendium...");
 
                 // create the data table

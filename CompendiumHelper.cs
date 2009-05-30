@@ -5,7 +5,10 @@ using System.Linq;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Xml.XPath;
+using HeavyDuck.Dnd.Forms;
 using HeavyDuck.Utilities.Net;
+using HtmlAgilityPack;
 
 namespace HeavyDuck.Dnd
 {
@@ -18,37 +21,72 @@ namespace HeavyDuck.Dnd
 
         private static readonly Regex m_style_regex = new Regex("href=\"styles/(.*?\\.css)\"", RegexOptions.IgnoreCase);
 
-        private CookieCollection m_login_cookies = null;
-        private string m_email;
-        private string m_password;
-
-        public CompendiumHelper(string email, string password)
-        {
-            m_email = email;
-            m_password = password;
-        }
+        private CookieContainer m_cookies = new CookieContainer();
 
         public void Login()
         {
             Dictionary<string, string> parameters;
 
-            parameters = new Dictionary<string, string>();
-            parameters["email"] = m_email;
-            parameters["password"] = m_password;
-
-            using (HttpWebResponse response = HttpHelper.UrlPost(URL_LOGIN, parameters))
+            // show login dialog
+            using (InsiderLoginDialog d = new InsiderLoginDialog())
             {
-                m_login_cookies = response.Cookies;
+                if (d.ShowDialog() != System.Windows.Forms.DialogResult.OK)
+                    throw new ApplicationException("User refused Insider login");
+
+                parameters = new Dictionary<string, string>();
+                parameters["email"] = d.Email;
+                parameters["password"] = d.Password;
+                parameters["InsiderSignin"] = "Sign In";
+            }
+
+            // perform login page GET to get event validation
+            using (HttpWebResponse response = HttpHelper.UrlGet(URL_LOGIN, m_cookies))
+            {
+                // extract the validation parameter from the response stream
+                using (Stream s = response.GetResponseStream())
+                {
+                    HtmlDocument doc;
+                    XPathNavigator nav_view, nav_event;
+                    const string NAME_VIEW = "__VIEWSTATE";
+                    const string NAME_EVENT = "__EVENTVALIDATION";
+
+                    // read in the login page HTML
+                    doc = new HtmlDocument();
+                    doc.Load(s);
+
+                    // select the elements we want to read
+                    nav_view = doc.CreateNavigator().SelectSingleNode("//input[@name = '" + NAME_VIEW + "']");
+                    nav_event = doc.CreateNavigator().SelectSingleNode("//input[@name = '" + NAME_EVENT + "']");
+
+                    // if there was no such node, we're screwed
+                    if (nav_view == null || nav_event == null)
+                        throw new ApplicationException("Can't find parameters in login page");
+
+                    // set value
+                    parameters[NAME_VIEW] = nav_view.SelectSingleNode("@value").Value;
+                    parameters[NAME_EVENT] = nav_event.SelectSingleNode("@value").Value;
+                }
+            }
+
+            // perform login request and grab the resulting cookie(s)
+            using (HttpWebResponse response = HttpHelper.UrlPost(URL_LOGIN, parameters, false, m_cookies))
+            {
+                // pass for now, should probably do some validation later
             }
         }
 
         public Stream GetMonster(int id)
         {
             HttpWebResponse response = null;
+            string url = URL_MONSTER + id;
+
+            // check if login is required
+            if (!ValidateCookies(url))
+                Login();
 
             try
             {
-                response = HttpHelper.UrlGet(URL_MONSTER + id);
+                response = HttpHelper.UrlGet(url, m_cookies);
                 return response.GetResponseStream();
             }
             catch
@@ -63,17 +101,13 @@ namespace HeavyDuck.Dnd
             Dictionary<string, string> parameters;
             HttpWebResponse response = null;
 
-            // sanity check
-            if (!ValidateCookies())
-                throw new InvalidOperationException("You must login before you can search the compendium");
-
             parameters = new Dictionary<string, string>();
             parameters["Keywords"] = query;
             parameters["Tab"] = "Monster";
 
             try
             {
-                response = HttpHelper.UrlPost(URL_SERVICE, parameters, m_login_cookies);
+                response = HttpHelper.UrlPost(URL_SERVICE, parameters, true, m_cookies);
                 return response.GetResponseStream();
             }
             catch
@@ -83,15 +117,17 @@ namespace HeavyDuck.Dnd
             }
         }
 
-        public bool ValidateCookies()
+        public bool ValidateCookies(string url)
         {
-            // if there is no cookie it's definitely invalid
-            if (m_login_cookies == null)
-                return false;
+            CookieCollection cookies = m_cookies.GetCookies(new Uri(url));
+            string[] required_cookies = {
+                "ASP.NET_SessionId",
+                "iPlanetDirectoryPro",
+            };
 
-            // check expiration
-            foreach (Cookie cookie in m_login_cookies)
-                if (cookie.Expired)
+            // check for the cookies we know are required and for expiration
+            foreach (string name in required_cookies)
+                if (cookies[name] == null || cookies[name].Expired)
                     return false;
 
             // if we got past the gauntlet, all's well
