@@ -19,6 +19,9 @@ namespace HeavyDuck.Dnd
         private const string URL_SEARCH = "http://www.wizards.com/dndinsider/compendium/database.aspx";
         private const string URL_SERVICE = "http://www.wizards.com/dndinsider/compendium/CompendiumSearch.asmx/KeywordSearch";
         private const string URL_MONSTER = "http://www.wizards.com/dndinsider/compendium/monster.aspx?id=";
+        private const string URL_CSS_RESET = "http://www.wizards.com/dndinsider/compendium/styles/reset.css";
+        private const string URL_CSS_SITE = "http://www.wizards.com/dndinsider/compendium/styles/site.css";
+        private const string URL_CSS_DETAIL = "http://www.wizards.com/dndinsider/compendium/styles/detail.css";
 
         private static readonly Regex m_style_regex = new Regex("href=\"styles/(.*?\\.css)\"", RegexOptions.IgnoreCase);
         private static readonly string m_cache_root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), @"HeavyDuck.Dnd");
@@ -89,10 +92,33 @@ namespace HeavyDuck.Dnd
             }
         }
 
-        public Stream GetMonster(int id)
+        public string GetCombinedDetailCss()
+        {
+            StringBuilder css = new StringBuilder();
+
+            // combine all the css files it imports into one big string
+            foreach (string url in new string[] { URL_CSS_RESET, URL_CSS_SITE, URL_CSS_DETAIL })
+            {
+                using (HttpWebResponse response = HttpHelper.UrlGet(url))
+                {
+                    using (StreamReader reader = new StreamReader(response.GetResponseStream()))
+                        css.AppendLine(reader.ReadToEnd());
+                }
+
+                // don't spam!
+                System.Threading.Thread.Sleep(100);
+            }
+
+            // add our auto-width dealie
+            css.AppendLine("#detail { width: auto !important; }");
+
+            // return the whole bit
+            return css.ToString();
+        }
+
+        public Stream GetEntryByUrl(string url)
         {
             HttpWebResponse response = null;
-            string url = URL_MONSTER + id;
 
             // check if login is required
             while (!ValidateCookies(url))
@@ -108,6 +134,11 @@ namespace HeavyDuck.Dnd
                 if (response != null) response.Close();
                 throw;
             }
+        }
+
+        public Stream GetMonster(int id)
+        {
+            return GetEntryByUrl(URL_MONSTER + id);
         }
 
         public Stream SearchMonsters(string query)
